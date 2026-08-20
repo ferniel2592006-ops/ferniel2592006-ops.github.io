@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<title>UruCompra</title>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #F3F1E7; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback } = React;
+
+/* ---------------------------------------------------------
+   Íconos: reemplazamos lucide-react por emojis simples, ya
+   que esto corre como página estática sin instalador de paquetes.
+--------------------------------------------------------- */
+function makeIcon(glyph) {
+  return function IconComp({ size = 18, color, style, strokeWidth, ...rest }) {
+    return (
+      <span
+        style={{ fontSize: size, lineHeight: 1, display: "inline-block", color, ...style }}
+        {...rest}
+      >
+        {glyph}
+      </span>
+    );
+  };
+}
+const Store = makeIcon("🏪");
+const ShoppingCart = makeIcon("🛒");
+const MapPin = makeIcon("📍");
+const Phone = makeIcon("📞");
+const Plus = makeIcon("➕");
+const Minus = makeIcon("➖");
+const Trash2 = makeIcon("🗑️");
+const ArrowLeft = makeIcon("←");
+const Package = makeIcon("📦");
+const Check = makeIcon("✅");
+const CreditCard = makeIcon("💳");
+const Banknote = makeIcon("💵");
+const Landmark = makeIcon("🏦");
+const ImageIcon = makeIcon("🖼️");
+const Search = makeIcon("🔍");
+const X = makeIcon("✕");
+
+const COMISION = 0.08; // 8% de comisión por venta
+
+const CATEGORIAS_COMERCIO = ["Almacén", "Mercadito", "Supermercado", "Restaurante"];
+const CATEGORIAS_PRODUCTO = ["Almacén", "Frescos", "Limpieza", "Bebidas", "Panadería", "Otros"];
+
+/* ---------------------------------------------------------
+   Conexión con Supabase (backend real) usando el SDK oficial.
+   Usamos TRES clientes independientes (uno por rol) para poder
+   tener sesión de cliente y de comercio abiertas al mismo tiempo
+   en el mismo navegador, cada una guardada aparte.
+--------------------------------------------------------- */
+const SUPABASE_URL = "https://zyhsyihsoyuvavzytqdm.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_L_PzQ2XQtAZnKIFt77JMhQ__N1Ma-Oi";
+const { createClient } = window.supabase;
+
+const sbPublico = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const sbCliente = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storageKey: "uc-sesion-cliente", persistSession: true, autoRefreshToken: true },
+});
+const sbComercio = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storageKey: "uc-sesion-comercio", persistSession: true, autoRefreshToken: true },
+});
+const sbAdmin = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { storageKey: "uc-sesion-admin", persistSession: true, autoRefreshToken: true },
+});
+
+const traducirErrorAuth = (msg) => {
+  if (msg === "confirm-email-required")
+    return "Tu cuenta se creó, pero Supabase pide confirmar el email antes de continuar. Revisá tu correo, o desactivá \"Confirm email\" en Supabase → Authentication → Providers → Email para pruebas.";
+  if (msg === "sin-permiso-admin")
+    return "Esta cuenta no tiene permisos de administrador. En Supabase → Table Editor → perfiles, cambiá el rol de esta cuenta a 'admin'.";
+  const m = (msg || "").toLowerCase();
+  if (m.includes("already registered") || m.includes("already exists") || m.includes("duplicate"))
+    return "Ese email ya está registrado. Probá iniciar sesión.";
+  if (m.includes("invalid login") || m.includes("invalid_grant") || m.includes("invalid credentials"))
+    return "Email o contraseña incorrectos.";
+  if (m.includes("password") && (m.includes("6") || m.includes("short")))
+    return "La contraseña debe tener al menos 6 caracteres.";
+  if (m.includes("email") && m.includes("invalid")) return "El email no es válido.";
+  return msg || "Ocurrió un error. Probá de nuevo.";
+};
+
+function money(n) {
+  return `$U ${n.toLocaleString("es-UY", { maximumFractionDigits: 0 })}`;
+}
+
+/* ---------------- Fuentes + estilos globales ---------------- */
+function GlobalStyle() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+
+      .uc-root {
+        --bg: #F3F1E7;
+        --ink: #22201B;
+        --ink-soft: #55503F;
+        --teal: #1B4B43;
+        --teal-dark: #0F332D;
+        --mustard: #E8A93A;
+        --mustard-dark: #C98A1E;
+        --brick: #B5533C;
+        --paper: #FFFDF7;
+        --line: #D9D3C1;
+        font-family: 'Barlow', sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        min-height: 100vh;
+      }
+      .uc-display { font-family: 'Barlow Condensed', sans-serif; text-transform: uppercase; letter-spacing: 0.02em; }
+      .uc-mono { font-family: 'IBM Plex Mono', monospace; }
+
+      .uc-root *:focus-visible {
+        outline: 3px solid var(--mustard-dark);
+        outline-offset: 2px;
+      }
+
+      .uc-btn {
+        font-family: 'Barlow Condensed', sans-serif;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        font-weight: 700;
+        border: none;
+        cursor: pointer;
+        transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease;
+      }
+      .uc-btn:active { transform: translateY(1px); }
+      .uc-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+      .uc-tag {
+        position: relative;
+        background: var(--paper);
+        border: 1.5px solid var(--line);
+        border-radius: 6px;
+      }
+      .uc-tag::before {
+        content: '';
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--bg);
+        border: 1.5px solid var(--line);
+      }
+
+      .uc-perf {
+        background-image: radial-gradient(circle, var(--bg) 3px, transparent 3.5px);
+        background-size: 14px 14px;
+        background-position: -3px -3px;
+        height: 8px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .uc-btn, .uc-card { transition: none !important; animation: none !important; }
+      }
+    `}</style>
+  );
+}
+
+/* ---------------- Encabezado ---------------- */
+function Header({ onBack, title, right }) {
+  return (
+    <div
+      style={{
+        background: "var(--teal)",
+        color: "var(--paper)",
+        padding: "16px 20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        position: "sticky",
+        top: 0,
+        zIndex: 10,
+        boxShadow: "0 2px 0 var(--mustard)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+        {onBack && (
+          <button
+            className="uc-btn"
+            onClick={onBack}
+            aria-label="Volver"
+            style={{
+              background: "transparent",
+              color: "var(--paper)",
+              padding: 6,
+              display: "flex",
+              borderRadius: 6,
+            }}
+          >
+            <ArrowLeft size={22} />
+          </button>
+        )}
+        <div style={{ minWidth: 0 }}>
+          <div
+            className="uc-display"
+            style={{ fontSize: 26, fontWeight: 900, lineHeight: 1, letterSpacing: "0.04em" }}
+          >
+            {title || "UruCompra"}
+          </div>
+          {!title && (
+            <div style={{ fontSize: 11.5, color: "var(--mustard)", fontWeight: 600, marginTop: 2 }}>
+              La feria de tu barrio, a domicilio
+            </div>
+          )}
+        </div>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+/* ---------------- Pantalla de bienvenida ---------------- */
+function Welcome({ goTo, cliente, activeComercio }) {
+  return (
+    <div>
+      <Header />
+      <div style={{ padding: "36px 20px 20px" }}>
+        <div
+          className="uc-display"
+          style={{ fontSize: 42, fontWeight: 900, lineHeight: 0.95, color: "var(--teal)" }}
+        >
+          Tu almacén de siempre,
+          <br />
+          ahora en la app.
+        </div>
+        <p style={{ marginTop: 14, fontSize: 15.5, color: "var(--ink-soft)", maxWidth: 420 }}>
+          Comercios de barrio con delivery propio: almacenes, mercaditos y supermercados.
+          Hacé la compra del mes sin salir de casa.
+        </p>
+      </div>
+
+      {(cliente || activeComercio) && (
+        <div style={{ padding: "0 20px 8px", display: "grid", gap: 10 }}>
+          <div
+            className="uc-display"
+            style={{ fontSize: 12, fontWeight: 700, color: "var(--ink-soft)" }}
+          >
+            Sesión activa
+          </div>
+          {cliente && (
+            <button
+              type="button"
+              className="uc-btn"
+              onClick={() => goTo("cliente-market")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                background: "var(--paper)",
+                border: "1.5px solid var(--line)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                textAlign: "left",
+              }}
+            >
+              <ShoppingCart size={18} color="var(--teal)" />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Seguir comprando</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontWeight: 500 }}>
+                  Como {cliente.nombre}
+                </div>
+              </div>
+            </button>
+          )}
+          {activeComercio && (
+            <button
+              type="button"
+              className="uc-btn"
+              onClick={() => goTo("comercio-dashboard")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                background: "var(--paper)",
+                border: "1.5px solid var(--line)",
+                borderRadius: 10,
+                padding: "12px 14px",
+                textAlign: "left",
+              }}
+            >
+              <Store size={18} color="var(--teal)" />
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>Volver a mi panel</div>
+                <div style={{ fontSize: 11.5, color: "var(--ink-soft)", fontWeight: 500 }}>
+                  {activeComercio.nombre}
+                </div>
+              </div>
+            </button>
+          )}
+        </div>
+      )}
+
+      <div style={{ padding: "8px 20px 40px", display: "grid", gap: 16 }}>
+        <button
+          className="uc-btn uc-card"
+          onClick={() => goTo("register-cliente")}
+          style={{
+            background: "var(--mustard)",
+            color: "var(--teal-dark)",
+            borderRadius: 14,
+            padding: "22px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            textAlign: "left",
+            boxShadow: "0 3px 0 var(--mustard-dark)",
+          }}
+        >
+          <ShoppingCart size={34} strokeWidth={2} />
+          <div>
+            <div className="uc-display" style={{ fontSize: 22, fontWeight: 800 }}>
+              Soy cliente
+            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 500, opacity: 0.85 }}>
+              Quiero comprar en comercios de mi zona
+            </div>
+          </div>
+        </button>
+
+        <button
+          className="uc-btn uc-card"
+          onClick={() => goTo("register-comercio")}
+          style={{
+            background: "var(--teal)",
+            color: "var(--paper)",
+            borderRadius: 14,
+            padding: "22px 20px",
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            textAlign: "left",
+            boxShadow: "0 3px 0 var(--teal-dark)",
+          }}
+        >
+          <Store size={34} strokeWidth={2} />
+          <div>
+            <div className="uc-display" style={{ fontSize: 22, fontWeight: 800 }}>
+              Soy comercio
+            </div>
+            <div style={{ fontSize: 13.5, fontWeight: 500, opacity: 0.85 }}>
+              Quiero vender y repartir mis productos
+            </div>
+          </div>
+        </button>
+      </div>
+
+      <div
+        style={{
+          margin: "0 20px 32px",
+          textAlign: "center",
+          display: "flex",
+          justifyContent: "center",
+          gap: 18,
+        }}
+      >
+        <button
+          type="button"
+          className="uc-btn"
+          onClick={() => goTo("terminos")}
+          style={{
+            background: "transparent",
+            color: "var(--ink-soft)",
+            fontSize: 11.5,
+            textDecoration: "underline",
+            textTransform: "none",
+            letterSpacing: 0,
+            fontFamily: "'Barlow', sans-serif",
+            fontWeight: 500,
+          }}
+        >
+          Términos y condiciones
+        </button>
+        <button
+          type="button"
+          className="uc-btn"
+          onClick={() => goTo("admin")}
+          style={{
+            background: "transparent",
+            color: "var(--ink-soft)",
+            fontSize: 11.5,
+            textDecoration: "underline",
+            textTransform: "none",
+            letterSpacing: 0,
+            fontFamily: "'Barlow', sans-serif",
+            fontWeight: 500,
+          }}
+        >
+          Panel administrador
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- Términos y condiciones ---------------- */
+function TerminosSeccion({ n, title, children }) {
+  return (
+    <div>
+      <div
+        className="uc-display"
+        style={{ fontSize: 15, fontWeight: 800, color: "var(--teal)", marginBottom: 4 }}
+      >
+        {n}. {title}
+      </div>
+      <div style={{ display: "grid", gap: 8 }}>{children}</div>
+    </div>
+  );
+}
+
+function Terminos({ goTo }) {
+  return (
+    <div>
+      <Header onBack={() => goTo("welcome")} title="Términos y condiciones" />
+      <div style={{ padding: 20, fontSize: 13.5, color: "var(--ink-soft)", display: "grid", gap: 20 }}>
+        <div
+          style={{
+            background: "var(--paper)",
+            border: "1.5px dashed var(--line)",
+            borderRadius: 10,
+            padding: 14,
+            fontSize: 12,
+          }}
+        >
+          Este documento es un modelo general de referencia, no constituye asesoramiento legal.
+          Antes de operar comercialmente y publicar la app, se recomienda que un escribano o
+          abogado especializado en derecho comercial y protección de datos lo revise y lo adapte a
+          la normativa vigente en Uruguay.
+        </div>
+
+        <p>
+          Última actualización: {new Date().toLocaleDateString("es-UY")}. Al registrarte y usar
+          UruCompra como cliente o como comercio, aceptás estos términos y condiciones en su
+          totalidad.
+        </p>
+
+        <TerminosSeccion n="1" title="Qué es UruCompra">
+          <p>
+            UruCompra es una plataforma tecnológica que conecta a comercios de barrio (almacenes,
+            mercaditos, supermercados y restaurantes) con clientes que quieren comprar productos
+            para retirar o recibir mediante el delivery propio de cada comercio. UruCompra actúa
+            únicamente como intermediario digital: no es dueña, no fabrica, no almacena, no
+            transporta ni entrega los productos publicados por los comercios.
+          </p>
+        </TerminosSeccion>
+
+        <TerminosSeccion n="2" title="Registro de cuentas">
+          <p>
+            Para registrarte como cliente o como comercio debés ser mayor de 18 años y proporcionar
+            datos veraces, exactos y actualizados. Los comercios deben contar con RUT o cédula de
+            identidad válidos y ser responsables de cumplir con sus propias obligaciones legales,
+            impositivas (DGI) y previsionales (BPS), así como con la normativa bromatológica e
+            higiénico-sanitaria que corresponda a su rubro. UruCompra no verifica ni garantiza el
+            cumplimiento de dichas obligaciones por parte de los comercios registrados.
+          </p>
+          <p>
+            Cada usuario es responsable de la confidencialidad de sus propios datos de acceso y de
+            toda actividad realizada desde su cuenta.
+          </p>
+        </TerminosSeccion>
+
+        <TerminosSeccion n="3" title="Comisión por venta">
+          <p>
+            UruCompra cobra a los comercios registrados una comisión del{" "}
+            <b className="uc-mono">{(COMISION * 100).toFixed(0)}%</b> sobre el valor de cada venta
+            realizada dentro de la app. En ventas pagadas con tarjeta o transferencia, la comisión
+            se descuenta automáticamente del monto transferido al comercio. En ventas pagadas en
+            efectivo, la comisión queda registrada como saldo pendiente que el comercio debe
+            liquidar desde su panel. UruCompra puede modificar el porcentaje de comisión a futuro,
+            notificando a los comercios con razonable anticipación.
+          </p>
+        </TerminosSeccion>
+
+        <TerminosSeccion n="4" title="Medios de pago y datos de cobro">
+          <p>
+            Los comercios son responsables de mantener actualizada su cuenta bancaria o tarjeta de
+            cobro. UruCompra no se hace responsable por transferencias a cuentas erróneas cargadas
+            por el comercio. El procesamiento de pagos con tarjeta requiere, para su operativa
+            real, la contratación de un procesador de pagos habilitado y el cumplimiento de la
+            normativa del Banco Central del Uruguay (BCU) aplicable a servicios de pago; hasta
+            tanto eso se implemente, cualquier cobro con tarjeta dentro de la app debe considerarse
+            una simulación con fines de demostración.
+          </p>
+        </TerminosSeccion>
+
+        <TerminosSeccion n="5" title="Responsabilidad sobre los productos y el servicio">
+          <p>
+            Cada comercio es el único responsable de la calidad, el estado, el vencimiento, el
+            correcto etiquetado, el precio y el stock real de los productos que publica, así como
+            del tiempo y la forma en que realiza el delivery, ya que este se hace con recursos
+            propios del comercio y no de UruCompra.
+          </p>
+        </TerminosSeccion>
+
+        <TerminosSeccion n="6" title="Limitación de responsabilidad">
+          <p>
+            UruCompra no se responsabiliza por pérdidas económicas, lucro cesante, ni daños
+            directos o indirectos derivados del uso de la app, incluyendo (sin limitarse a) fallas,
+            demoras o el mal funcionamiento del comercio seleccionado para comprar, errores en la
+            información publicada por un comercio, o inconvenientes ocurridos durante la entrega.
+          </p>
+          <p>
+            La plataforma se ofrece "tal cual" (as is), sin garantías de disponibilidad
+            ininterrumpida ni de ausencia de errores.
+          </p>
+        </TerminosSeccion>
+
+        <TerminosSeccion n="7" title="Reclamos y mediación">
+          <p>
+            Ante cualquier duda, reclamo o inconveniente relacionado con un pedido, UruCompra hace
+            sus mejores esfuerzos para mediar de buena fe entre el cliente y el comercio
+            involucrado. Esta mediación no implica el otorgamiento de reintegros, compensaciones
+            económicas ni indemnizaciones por parte de UruCompra, salvo que la ley aplicable
+            disponga expresamente lo contrario.
+          </p>
+          <p>
+            Los usuarios conservan siempre el derecho a presentar sus reclamos ante los organismos
