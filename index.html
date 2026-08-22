@@ -1,0 +1,896 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#174D45">
+<title>UruCompra</title>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+<style>
+*{box-sizing:border-box}
+html,body,#root{margin:0;min-height:100%;background:#F3F1E7}
+body{font-family:Arial,sans-serif;color:#222}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+.uc{min-height:100vh;background:#F3F1E7}
+.header{
+ background:#174D45;color:white;padding:17px 18px;
+ position:sticky;top:0;z-index:20;
+ border-bottom:4px solid #E8A93A
+}
+.logo{font-size:30px;font-weight:900}
+.subtitle{color:#E8A93A;font-size:13px;margin-top:2px}
+.container{padding:20px;max-width:650px;margin:auto}
+.card{
+ background:#FFFDF7;border:1px solid #D9D3C1;border-radius:15px;
+ padding:18px;margin-bottom:14px;box-shadow:0 2px 4px #00000010
+}
+h1,h2,h3{color:#174D45}
+h1{font-size:39px;line-height:.95;margin:10px 0 16px}
+h2{margin-top:0}
+.btn{
+ width:100%;border:0;border-radius:12px;padding:15px;
+ font-weight:800;margin-top:9px
+}
+.primary{background:#E8A93A;color:#173F39}
+.secondary{background:#174D45;color:white}
+.light{background:#FFFDF7;border:1px solid #D9D3C1;color:#174D45}
+.danger{background:#B5533C;color:white}
+label{display:block;font-weight:bold;color:#555;margin:12px 0 5px}
+input,select,textarea{
+ width:100%;padding:13px;border-radius:10px;
+ border:1px solid #CFC8B5;background:white
+}
+textarea{min-height:90px;resize:vertical}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.small{font-size:13px;color:#666}
+.price{font-size:20px;font-weight:900;color:#174D45}
+.badge{
+ display:inline-block;padding:5px 9px;border-radius:20px;
+ background:#E8A93A;color:#174D45;font-size:12px;font-weight:bold
+}
+.nav{
+ position:fixed;bottom:0;left:0;right:0;background:#FFFDF7;
+ border-top:1px solid #D9D3C1;display:flex;z-index:30
+}
+.nav button{
+ flex:1;border:0;background:transparent;padding:12px 4px;
+ color:#555;font-size:11px;font-weight:bold
+}
+.nav .active{color:#174D45}
+.space-bottom{height:75px}
+.product{
+ display:flex;justify-content:space-between;gap:10px;
+ border-bottom:1px solid #E2DDCF;padding:13px 0
+}
+.product:last-child{border-bottom:0}
+.icon{
+ width:48px;height:48px;border-radius:12px;background:#E8A93A;
+ display:flex;align-items:center;justify-content:center;font-size:25px
+}
+.notice{
+ padding:12px;border-radius:10px;background:#F8EBCB;
+ color:#66501E;margin-bottom:14px;font-size:13px
+}
+.error{
+ padding:12px;border-radius:10px;background:#F7D9D2;
+ color:#7A2F20;margin-bottom:14px;font-size:13px
+}
+.success{
+ padding:12px;border-radius:10px;background:#DCEFE7;
+ color:#174D45;margin-bottom:14px;font-size:13px
+}
+.store{
+ padding:15px;border:1px solid #D9D3C1;border-radius:13px;
+ background:#FFFDF7;margin-bottom:10px
+}
+.store-title{font-size:20px;font-weight:900;color:#174D45}
+.center{text-align:center}
+.link{color:#174D45;text-decoration:underline;cursor:pointer}
+hr{border:0;border-top:1px solid #DDD6C5;margin:18px 0}
+@media(max-width:400px){
+ h1{font-size:34px}
+ .container{padding:15px}
+}
+</style>
+</head>
+
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+
+const {useState,useEffect}=React;
+const {createClient}=window.supabase;
+
+/* =========================================================
+   URUCOMPRA
+   ========================================================= */
+
+const SUPABASE_URL="https://zyhsyihsoyuvavzytqdm.supabase.co";
+const SUPABASE_KEY="sb_publishable_L_PzQ2XQtAZnKIFt77JMhQ__N1Ma-Oi";
+
+const supabase=createClient(
+ SUPABASE_URL,
+ SUPABASE_KEY,
+ {
+  auth:{
+   persistSession:true,
+   autoRefreshToken:true,
+   storageKey:"urucompra-session"
+  }
+ }
+);
+
+const COMMISSION=.08;
+
+function money(n){
+ return "$U "+Number(n||0).toLocaleString("es-UY");
+}
+
+function Header({back,title}){
+ return (
+  <div className="header">
+   {back&&
+    <button
+     onClick={back}
+     style={{
+      background:"none",border:0,color:"white",
+      fontSize:26,marginRight:8
+     }}
+    >←</button>
+   }
+   <span className="logo">{title||"UruCompra"}</span>
+   {!title&&<div className="subtitle">
+    La feria de tu barrio, a domicilio
+   </div>}
+  </div>
+ )
+}
+
+/* =========================================================
+   APP
+   ========================================================= */
+
+function App(){
+
+ const [page,setPage]=useState("home");
+ const [user,setUser]=useState(null);
+ const [profile,setProfile]=useState(null);
+ const [merchant,setMerchant]=useState(null);
+ const [loading,setLoading]=useState(true);
+ const [message,setMessage]=useState("");
+ const [error,setError]=useState("");
+
+ useEffect(()=>{
+  loadSession();
+
+  const {data}=supabase.auth.onAuthStateChange(
+   async(event,session)=>{
+    if(session){
+     setUser(session.user);
+     await loadProfile(session.user.id);
+    }else{
+     setUser(null);
+     setProfile(null);
+     setMerchant(null);
+    }
+   }
+  );
+
+  return()=>data.subscription.unsubscribe();
+ },[]);
+
+ async function loadSession(){
+  const {data}=await supabase.auth.getSession();
+
+  if(data.session){
+   setUser(data.session.user);
+   await loadProfile(data.session.user.id);
+  }
+
+  setLoading(false);
+ }
+
+ async function loadProfile(id){
+
+  const {data,error}=await supabase
+   .from("profiles")
+   .select("*")
+   .eq("id",id)
+   .maybeSingle();
+
+  if(error){
+   console.log(error);
+   return;
+  }
+
+  setProfile(data);
+
+  if(data?.role==="comercio"){
+   const {data:m}=await supabase
+    .from("merchants")
+    .select("*")
+    .eq("owner_id",id)
+    .maybeSingle();
+
+   setMerchant(m);
+  }
+ }
+
+ async function logout(){
+  await supabase.auth.signOut();
+  setPage("home");
+ }
+
+ function clearMessages(){
+  setMessage("");
+  setError("");
+ }
+
+ if(loading)
+  return <div className="uc"><Header/><div className="container center">
+   <h2>Cargando UruCompra...</h2>
+  </div></div>;
+
+ return(
+  <div className="uc">
+   {page==="home" &&
+    <Home
+     user={user}
+     profile={profile}
+     setPage={setPage}
+    />}
+
+   {page==="login" &&
+    <Login
+     setPage={setPage}
+     setMessage={setMessage}
+     setError={setError}
+     clearMessages={clearMessages}
+    />}
+
+   {page==="register-client" &&
+    <RegisterClient
+     setPage={setPage}
+     setMessage={setMessage}
+     setError={setError}
+    />}
+
+   {page==="register-merchant" &&
+    <RegisterMerchant
+     setPage={setPage}
+     setMessage={setMessage}
+     setError={setError}
+    />}
+
+   {page==="client" && user &&
+    <ClientApp
+     user={user}
+     profile={profile}
+     setPage={setPage}
+     logout={logout}
+    />}
+
+   {page==="merchant" && user &&
+    <MerchantApp
+     user={user}
+     profile={profile}
+     merchant={merchant}
+     reload={()=>loadProfile(user.id)}
+     setPage={setPage}
+     logout={logout}
+    />}
+
+   {page==="terms" &&
+    <Terms setPage={setPage}/>}
+
+   {page==="privacy" &&
+    <Privacy setPage={setPage}/>}
+
+   {message &&
+    <div style={{
+     position:"fixed",bottom:80,left:15,right:15,zIndex:50
+    }}>
+     <div className="success">{message}</div>
+    </div>
+   }
+
+   {error &&
+    <div style={{
+     position:"fixed",bottom:80,left:15,right:15,zIndex:50
+    }}>
+     <div className="error">{error}</div>
+    </div>
+   }
+  </div>
+ )
+}
+
+/* =========================================================
+   HOME
+   ========================================================= */
+
+function Home({user,profile,setPage}){
+
+ return(
+  <>
+   <Header/>
+
+   <div className="container">
+
+    <h1>
+     Tu almacén de siempre,
+     <br/>
+     ahora en la app.
+    </h1>
+
+    <p style={{fontSize:16,color:"#666"}}>
+     Comprá comida, bebidas, productos de limpieza
+     y mucho más en comercios de tu barrio con
+     delivery propio.
+    </p>
+
+    {user&&profile ? (
+     <div className="card">
+      <h2>Bienvenido, {profile.full_name}</h2>
+
+      <button
+       className="btn primary"
+       onClick={()=>
+        setPage(profile.role==="comercio"?"merchant":"client")
+       }
+      >
+       Continuar
+      </button>
+     </div>
+    ):(
+     <>
+      <div className="card">
+       <h2>Empezá en UruCompra</h2>
+
+       <button
+        className="btn primary"
+        onClick={()=>setPage("register-client")}
+       >
+        🛒 Soy cliente
+       </button>
+
+       <button
+        className="btn secondary"
+        onClick={()=>setPage("register-merchant")}
+       >
+        🏪 Soy comercio
+       </button>
+
+       <button
+        className="btn light"
+        onClick={()=>setPage("login")}
+       >
+        Iniciar sesión
+       </button>
+      </div>
+
+      <div className="grid">
+       <button className="btn light" onClick={()=>setPage("terms")}>
+        📄 Términos
+       </button>
+
+       <button className="btn light" onClick={()=>setPage("privacy")}>
+        🔒 Privacidad
+       </button>
+      </div>
+     </>
+    )}
+
+   </div>
+  </>
+ )
+}
+
+/* =========================================================
+   LOGIN
+   ========================================================= */
+
+function Login({setPage,setMessage,setError}){
+
+ const [email,setEmail]=useState("");
+ const [password,setPassword]=useState("");
+ const [busy,setBusy]=useState(false);
+
+ async function login(e){
+  e.preventDefault();
+  setBusy(true);
+  setError("");
+
+  const {error}=await supabase.auth.signInWithPassword({
+   email,password
+  });
+
+  setBusy(false);
+
+  if(error){
+   setError("Email o contraseña incorrectos.");
+   return;
+  }
+
+  setPage("home");
+ }
+
+ return(
+  <>
+   <Header back={()=>setPage("home")} title="Iniciar sesión"/>
+
+   <div className="container">
+
+    <form className="card" onSubmit={login}>
+
+     <h2>Entrá a UruCompra</h2>
+
+     <label>Email</label>
+     <input
+      type="email"
+      value={email}
+      onChange={e=>setEmail(e.target.value)}
+      required
+     />
+
+     <label>Contraseña</label>
+     <input
+      type="password"
+      value={password}
+      onChange={e=>setPassword(e.target.value)}
+      required
+     />
+
+     <button className="btn primary" disabled={busy}>
+      {busy?"Ingresando...":"Ingresar"}
+     </button>
+
+    </form>
+
+    <div className="center">
+     <span className="link" onClick={()=>setPage("register-client")}>
+      Crear cuenta de cliente
+     </span>
+    </div>
+
+   </div>
+  </>
+ )
+}
+
+/* =========================================================
+   REGISTRO CLIENTE
+   ========================================================= */
+
+function RegisterClient({setPage,setError}){
+
+ const [name,setName]=useState("");
+ const [phone,setPhone]=useState("");
+ const [address,setAddress]=useState("");
+ const [neighborhood,setNeighborhood]=useState("");
+ const [email,setEmail]=useState("");
+ const [password,setPassword]=useState("");
+ const [terms,setTerms]=useState(false);
+ const [busy,setBusy]=useState(false);
+
+ async function register(e){
+  e.preventDefault();
+
+  if(!terms){
+   setError("Tenés que aceptar los términos y condiciones.");
+   return;
+  }
+
+  setBusy(true);
+  setError("");
+
+  const {data,error}=await supabase.auth.signUp({
+   email,
+   password,
+   options:{
+    data:{
+     role:"cliente",
+     full_name:name
+    }
+   }
+  });
+
+  if(error){
+   setError(error.message);
+   setBusy(false);
+   return;
+  }
+
+  if(data.user){
+   await supabase
+    .from("profiles")
+    .update({
+     full_name:name,
+     phone,
+     address,
+     neighborhood
+    })
+    .eq("id",data.user.id);
+
+   await supabase
+    .from("legal_acceptances")
+    .insert({
+     user_id:data.user.id,
+     document_type:"terms",
+     version:"1.0"
+    });
+  }
+
+  setBusy(false);
+  setPage("home");
+ }
+
+ return(
+  <>
+   <Header back={()=>setPage("home")} title="Crear cuenta"/>
+
+   <div className="container">
+
+    <form className="card" onSubmit={register}>
+
+     <h2>👤 Soy cliente</h2>
+
+     <label>Nombre completo</label>
+     <input value={name} onChange={e=>setName(e.target.value)} required/>
+
+     <label>Teléfono</label>
+     <input value={phone} onChange={e=>setPhone(e.target.value)} required/>
+
+     <label>Dirección</label>
+     <input value={address} onChange={e=>setAddress(e.target.value)} required/>
+
+     <label>Barrio</label>
+     <input value={neighborhood} onChange={e=>setNeighborhood(e.target.value)} required/>
+
+     <label>Email</label>
+     <input type="email" value={email}
+      onChange={e=>setEmail(e.target.value)} required/>
+
+     <label>Contraseña</label>
+     <input type="password" minLength="6"
+      value={password}
+      onChange={e=>setPassword(e.target.value)} required/>
+
+     <label style={{display:"flex",gap:8,alignItems:"center"}}>
+      <input
+       type="checkbox"
+       checked={terms}
+       onChange={e=>setTerms(e.target.checked)}
+       style={{width:"auto"}}
+      />
+      Acepto los términos y condiciones
+     </label>
+
+     <button className="btn primary" disabled={busy}>
+      {busy?"Creando cuenta...":"Crear cuenta"}
+     </button>
+
+    </form>
+
+   </div>
+  </>
+ )
+}
+
+/* =========================================================
+   REGISTRO COMERCIO
+   ========================================================= */
+
+function RegisterMerchant({setPage,setError}){
+
+ const [name,setName]=useState("");
+ const [type,setType]=useState("Almacén");
+ const [tax,setTax]=useState("");
+ const [responsible,setResponsible]=useState("");
+ const [phone,setPhone]=useState("");
+ const [address,setAddress]=useState("");
+ const [neighborhood,setNeighborhood]=useState("");
+ const [hours,setHours]=useState("");
+ const [email,setEmail]=useState("");
+ const [password,setPassword]=useState("");
+ const [terms,setTerms]=useState(false);
+ const [busy,setBusy]=useState(false);
+
+ async function register(e){
+  e.preventDefault();
+
+  if(!terms){
+   setError("Tenés que aceptar los términos y condiciones.");
+   return;
+  }
+
+  setBusy(true);
+  setError("");
+
+  const {data,error}=await supabase.auth.signUp({
+   email,
+   password,
+   options:{
+    data:{
+     role:"comercio",
+     full_name:responsible
+    }
+   }
+  });
+
+  if(error){
+   setError(error.message);
+   setBusy(false);
+   return;
+  }
+
+  if(data.user){
+
+   const {error:profileError}=await supabase
+    .from("profiles")
+    .update({
+     full_name:responsible,
+     phone
+    })
+    .eq("id",data.user.id);
+
+   if(profileError){
+    setError(profileError.message);
+    setBusy(false);
+    return;
+   }
+
+   const {error:merchantError}=await supabase
+    .from("merchants")
+    .insert({
+     owner_id:data.user.id,
+     business_name:name,
+     business_type:type,
+     tax_id:tax,
+     responsible_name:responsible,
+     phone,
+     address,
+     neighborhood,
+     opening_hours:hours,
+     own_delivery:true
+    });
+
+   if(merchantError){
+    setError(merchantError.message);
+    setBusy(false);
+    return;
+   }
+
+   await supabase
+    .from("legal_acceptances")
+    .insert({
+     user_id:data.user.id,
+     document_type:"terms",
+     version:"1.0"
+    });
+  }
+
+  setBusy(false);
+  setPage("home");
+ }
+
+ return(
+  <>
+   <Header back={()=>setPage("home")} title="Registrar comercio"/>
+
+   <div className="container">
+
+    <div className="notice">
+     Los comercios son responsables de sus productos,
+     precios, stock, habilitaciones y delivery.
+     UruCompra actúa como intermediario digital.
+    </div>
+
+    <form className="card" onSubmit={register}>
+
+     <h2>🏪 Datos del comercio</h2>
+
+     <label>Nombre del comercio</label>
+     <input value={name} onChange={e=>setName(e.target.value)} required/>
+
+     <label>Tipo de comercio</label>
+     <select value={type} onChange={e=>setType(e.target.value)}>
+      <option>Almacén</option>
+      <option>Mercadito</option>
+      <option>Supermercado</option>
+      <option>Restaurante</option>
+     </select>
+
+     <label>RUT o cédula</label>
+     <input value={tax} onChange={e=>setTax(e.target.value)} required/>
+
+     <label>Responsable</label>
+     <input value={responsible}
+      onChange={e=>setResponsible(e.target.value)} required/>
+
+     <label>Teléfono</label>
+     <input value={phone} onChange={e=>setPhone(e.target.value)} required/>
+
+     <label>Dirección</label>
+     <input value={address}
+      onChange={e=>setAddress(e.target.value)} required/>
+
+     <label>Barrio</label>
+     <input value={neighborhood}
+      onChange={e=>setNeighborhood(e.target.value)} required/>
+
+     <label>Horario</label>
+     <input placeholder="Ej: Lun-Sáb 08:00-20:00"
+      value={hours}
+      onChange={e=>setHours(e.target.value)}/>
+
+     <label>Email</label>
+     <input type="email" value={email}
+      onChange={e=>setEmail(e.target.value)} required/>
+
+     <label>Contraseña</label>
+     <input type="password" minLength="6"
+      value={password}
+      onChange={e=>setPassword(e.target.value)} required/>
+
+     <label style={{display:"flex",gap:8,alignItems:"center"}}>
+      <input
+       type="checkbox"
+       checked={terms}
+       onChange={e=>setTerms(e.target.checked)}
+       style={{width:"auto"}}
+      />
+      Acepto los términos y condiciones
+     </label>
+
+     <button className="btn secondary" disabled={busy}>
+      {busy?"Registrando...":"Registrar comercio"}
+     </button>
+
+    </form>
+
+   </div>
+  </>
+ )
+}
+
+/* =========================================================
+   CLIENTE
+   ========================================================= */
+
+function ClientApp({user,profile,setPage,logout}){
+
+ const [tab,setTab]=useState("stores");
+ const [stores,setStores]=useState([]);
+ const [selected,setSelected]=useState(null);
+ const [products,setProducts]=useState([]);
+ const [cart,setCart]=useState([]);
+ const [search,setSearch]=useState("");
+ const [orders,setOrders]=useState([]);
+
+ useEffect(()=>{
+  loadStores();
+  loadOrders();
+ },[]);
+
+ async function loadStores(){
+  const {data}=await supabase
+   .from("merchants")
+   .select("*")
+   .eq("status","activo")
+   .order("business_name");
+
+  setStores(data||[]);
+ }
+
+ async function loadOrders(){
+  const {data}=await supabase
+   .from("orders")
+   .select("*")
+   .eq("client_id",user.id)
+   .order("created_at",{ascending:false});
+
+  setOrders(data||[]);
+ }
+
+ async function openStore(store){
+  setSelected(store);
+
+  const {data}=await supabase
+   .from("products")
+   .select("*")
+   .eq("merchant_id",store.id)
+   .eq("active",true)
+   .order("name");
+
+  setProducts(data||[]);
+  setTab("store");
+ }
+
+ function add(product){
+  setCart(c=>{
+   const found=c.find(x=>x.id===product.id);
+
+   if(found)
+    return c.map(x=>x.id===product.id
+     ?{...x,quantity:x.quantity+1}:x);
+
+   return [...c,{...product,quantity:1}];
+  });
+ }
+
+ function remove(id){
+  setCart(c=>{
+   const found=c.find(x=>x.id===id);
+
+   if(!found)return c;
+
+   if(found.quantity<=1)
+    return c.filter(x=>x.id!==id);
+
+   return c.map(x=>x.id===id
+    ?{...x,quantity:x.quantity-1}:x);
+  });
+ }
+
+ const subtotal=cart.reduce(
+  (s,x)=>s+x.price*x.quantity,0
+ );
+
+ async function createOrder(method){
+
+  if(!cart.length)return;
+
+  if(!profile?.address){
+   alert("Primero completá tu dirección en Perfil.");
+   return;
+  }
+
+  const delivery=selected?.delivery_fee||0;
+  const total=subtotal+delivery;
+  const commission=Math.floor(subtotal*COMMISSION);
+
+  const {data,error}=await supabase
+   .from("orders")
+   .insert({
+    client_id:user.id,
+    merchant_id:selected.id,
+    subtotal,
+    delivery_fee:delivery,
+    total,
+    commission_rate:COMMISSION,
+    commission_amount:commission,
+    payment_method:method,
+    delivery_address:profile.address,
+    neighborhood:profile.neighborhood
+   })
+   .select()
+   .single();
+
+  if(error){
+   alert(error.message);
+   return;
+  }
+
+  const items=cart.map(x=>({
+   order_id:data.id,
+   product_id:x.id,
+   product_name:x.name,
+   unit_price:x.price,
+   quantity:x.quantity
+  }));
+
+  await supabase.from("order_items").insert(items);
+
+  setCart([]);
+  await loadOrders();
+
+  alert("¡Pedido
